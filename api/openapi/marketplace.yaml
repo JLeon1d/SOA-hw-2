@@ -1,0 +1,1086 @@
+openapi: 3.0.3
+info:
+  title: Marketplace API
+  description: |
+    Marketplace backend service with products, orders, authentication, and promo codes.
+    
+    ## Authentication
+    Most endpoints require JWT authentication via Bearer token in Authorization header.
+    
+    ## Roles
+    - USER: Can create and manage own orders
+    - SELLER: Can create and manage own products, create promo codes
+    - ADMIN: Full access to all resources
+  version: 1.0.0
+  contact:
+    name: API Support
+    email: support@marketplace.com
+
+servers:
+  - url: http://localhost:8080
+    description: Local development server
+
+tags:
+  - name: Products
+    description: Product catalog management
+  - name: Orders
+    description: Order management and processing
+  - name: Auth
+    description: Authentication and authorization
+  - name: Promo Codes
+    description: Promotional codes management
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token obtained from /auth/login or /auth/refresh
+
+  schemas:
+    # Error Schemas
+    ErrorResponse:
+      type: object
+      required:
+        - error_code
+        - message
+      properties:
+        error_code:
+          type: string
+          description: Machine-readable error code
+          enum:
+            - PRODUCT_NOT_FOUND
+            - PRODUCT_INACTIVE
+            - ORDER_NOT_FOUND
+            - ORDER_LIMIT_EXCEEDED
+            - ORDER_HAS_ACTIVE
+            - INVALID_STATE_TRANSITION
+            - INSUFFICIENT_STOCK
+            - PROMO_CODE_INVALID
+            - PROMO_CODE_MIN_AMOUNT
+            - ORDER_OWNERSHIP_VIOLATION
+            - VALIDATION_ERROR
+            - TOKEN_EXPIRED
+            - TOKEN_INVALID
+            - REFRESH_TOKEN_INVALID
+            - ACCESS_DENIED
+        message:
+          type: string
+          description: Human-readable error message
+        details:
+          type: object
+          description: Additional error details
+          additionalProperties: true
+
+    # Product Schemas
+    ProductStatus:
+      type: string
+      enum:
+        - ACTIVE
+        - INACTIVE
+        - ARCHIVED
+      description: Product status
+
+    ProductCreate:
+      type: object
+      required:
+        - name
+        - price
+        - stock
+        - category
+        - status
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Product name
+        description:
+          type: string
+          maxLength: 4000
+          nullable: true
+          description: Product description
+        price:
+          type: number
+          format: decimal
+          minimum: 0.01
+          exclusiveMinimum: true
+          description: Product price (must be greater than 0)
+        stock:
+          type: integer
+          minimum: 0
+          description: Stock quantity
+        category:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Product category
+        status:
+          $ref: '#/components/schemas/ProductStatus'
+
+    ProductUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Product name
+        description:
+          type: string
+          maxLength: 4000
+          nullable: true
+          description: Product description
+        price:
+          type: number
+          format: decimal
+          minimum: 0.01
+          exclusiveMinimum: true
+          description: Product price
+        stock:
+          type: integer
+          minimum: 0
+          description: Stock quantity
+        category:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Product category
+        status:
+          $ref: '#/components/schemas/ProductStatus'
+
+    ProductResponse:
+      type: object
+      required:
+        - id
+        - name
+        - price
+        - stock
+        - category
+        - status
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Product ID
+        name:
+          type: string
+          description: Product name
+        description:
+          type: string
+          nullable: true
+          description: Product description
+        price:
+          type: number
+          format: decimal
+          description: Product price
+        stock:
+          type: integer
+          description: Stock quantity
+        category:
+          type: string
+          description: Product category
+        status:
+          $ref: '#/components/schemas/ProductStatus'
+        seller_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Seller ID (for SELLER role)
+        created_at:
+          type: string
+          format: date-time
+          description: Creation timestamp
+        updated_at:
+          type: string
+          format: date-time
+          description: Last update timestamp
+
+    ProductListResponse:
+      type: object
+      required:
+        - items
+        - total_elements
+        - page
+        - size
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProductResponse'
+        total_elements:
+          type: integer
+          description: Total number of products matching filters
+        page:
+          type: integer
+          description: Current page number (0-indexed)
+        size:
+          type: integer
+          description: Page size
+
+    # Order Schemas
+    OrderStatus:
+      type: string
+      enum:
+        - CREATED
+        - PAYMENT_PENDING
+        - PAID
+        - SHIPPED
+        - COMPLETED
+        - CANCELED
+      description: Order status
+
+    OrderItemCreate:
+      type: object
+      required:
+        - product_id
+        - quantity
+      properties:
+        product_id:
+          type: string
+          format: uuid
+          description: Product ID
+        quantity:
+          type: integer
+          minimum: 1
+          maximum: 999
+          description: Quantity to order
+
+    OrderItemResponse:
+      type: object
+      required:
+        - id
+        - product_id
+        - quantity
+        - price_at_order
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Order item ID
+        product_id:
+          type: string
+          format: uuid
+          description: Product ID
+        quantity:
+          type: integer
+          description: Quantity ordered
+        price_at_order:
+          type: number
+          format: decimal
+          description: Price per unit at order time
+
+    OrderCreate:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          minItems: 1
+          maxItems: 50
+          items:
+            $ref: '#/components/schemas/OrderItemCreate'
+        promo_code:
+          type: string
+          pattern: '^[A-Z0-9_]{4,20}$'
+          nullable: true
+          description: Promotional code
+
+    OrderUpdate:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          minItems: 1
+          maxItems: 50
+          items:
+            $ref: '#/components/schemas/OrderItemCreate'
+
+    OrderResponse:
+      type: object
+      required:
+        - id
+        - user_id
+        - status
+        - items
+        - total_amount
+        - discount_amount
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Order ID
+        user_id:
+          type: string
+          format: uuid
+          description: User ID who created the order
+        status:
+          $ref: '#/components/schemas/OrderStatus'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderItemResponse'
+        promo_code_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Applied promo code ID
+        total_amount:
+          type: number
+          format: decimal
+          description: Total order amount after discount
+        discount_amount:
+          type: number
+          format: decimal
+          description: Discount amount applied
+        created_at:
+          type: string
+          format: date-time
+          description: Creation timestamp
+        updated_at:
+          type: string
+          format: date-time
+          description: Last update timestamp
+
+    # Auth Schemas
+    UserRole:
+      type: string
+      enum:
+        - USER
+        - SELLER
+        - ADMIN
+      description: User role
+
+    RegisterRequest:
+      type: object
+      required:
+        - email
+        - password
+        - role
+      properties:
+        email:
+          type: string
+          format: email
+          description: User email
+        password:
+          type: string
+          minLength: 8
+          maxLength: 100
+          description: User password
+        role:
+          $ref: '#/components/schemas/UserRole'
+
+    LoginRequest:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+          description: User email
+        password:
+          type: string
+          description: User password
+
+    RefreshRequest:
+      type: object
+      required:
+        - refresh_token
+      properties:
+        refresh_token:
+          type: string
+          description: Refresh token
+
+    AuthResponse:
+      type: object
+      required:
+        - access_token
+        - refresh_token
+        - token_type
+        - expires_in
+      properties:
+        access_token:
+          type: string
+          description: JWT access token
+        refresh_token:
+          type: string
+          description: JWT refresh token
+        token_type:
+          type: string
+          enum:
+            - Bearer
+          description: Token type
+        expires_in:
+          type: integer
+          description: Access token expiry in seconds
+
+    # Promo Code Schemas
+    DiscountType:
+      type: string
+      enum:
+        - PERCENTAGE
+        - FIXED_AMOUNT
+      description: Discount type
+
+    PromoCodeCreate:
+      type: object
+      required:
+        - code
+        - discount_type
+        - discount_value
+        - min_order_amount
+        - max_uses
+        - valid_from
+        - valid_until
+      properties:
+        code:
+          type: string
+          pattern: '^[A-Z0-9_]{4,20}$'
+          description: Promo code
+        discount_type:
+          $ref: '#/components/schemas/DiscountType'
+        discount_value:
+          type: number
+          format: decimal
+          minimum: 0.01
+          description: Discount value (percentage or fixed amount)
+        min_order_amount:
+          type: number
+          format: decimal
+          minimum: 0
+          description: Minimum order amount to apply promo
+        max_uses:
+          type: integer
+          minimum: 1
+          description: Maximum number of uses
+        valid_from:
+          type: string
+          format: date-time
+          description: Promo code valid from
+        valid_until:
+          type: string
+          format: date-time
+          description: Promo code valid until
+        active:
+          type: boolean
+          default: true
+          description: Whether promo code is active
+
+    PromoCodeResponse:
+      type: object
+      required:
+        - id
+        - code
+        - discount_type
+        - discount_value
+        - min_order_amount
+        - max_uses
+        - current_uses
+        - valid_from
+        - valid_until
+        - active
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Promo code ID
+        code:
+          type: string
+          description: Promo code
+        discount_type:
+          $ref: '#/components/schemas/DiscountType'
+        discount_value:
+          type: number
+          format: decimal
+          description: Discount value
+        min_order_amount:
+          type: number
+          format: decimal
+          description: Minimum order amount
+        max_uses:
+          type: integer
+          description: Maximum uses
+        current_uses:
+          type: integer
+          description: Current uses
+        valid_from:
+          type: string
+          format: date-time
+          description: Valid from
+        valid_until:
+          type: string
+          format: date-time
+          description: Valid until
+        active:
+          type: boolean
+          description: Active status
+
+  responses:
+    BadRequest:
+      description: Validation error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error_code: VALIDATION_ERROR
+            message: Invalid input data
+            details:
+              field: price
+              violation: must be greater than 0
+
+    Unauthorized:
+      description: Authentication required or token invalid
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            expired:
+              value:
+                error_code: TOKEN_EXPIRED
+                message: Access token has expired
+            invalid:
+              value:
+                error_code: TOKEN_INVALID
+                message: Invalid access token
+
+    Forbidden:
+      description: Insufficient permissions
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error_code: ACCESS_DENIED
+            message: Insufficient permissions to access this resource
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            product:
+              value:
+                error_code: PRODUCT_NOT_FOUND
+                message: Product not found
+                details:
+                  product_id: 550e8400-e29b-41d4-a716-446655440000
+            order:
+              value:
+                error_code: ORDER_NOT_FOUND
+                message: Order not found
+                details:
+                  order_id: 550e8400-e29b-41d4-a716-446655440000
+
+    Conflict:
+      description: Business logic conflict
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            inactive_product:
+              value:
+                error_code: PRODUCT_INACTIVE
+                message: Cannot order inactive product
+            active_order:
+              value:
+                error_code: ORDER_HAS_ACTIVE
+                message: User already has an active order
+            invalid_transition:
+              value:
+                error_code: INVALID_STATE_TRANSITION
+                message: Invalid order status transition
+            insufficient_stock:
+              value:
+                error_code: INSUFFICIENT_STOCK
+                message: Insufficient stock for requested products
+                details:
+                  products:
+                    - product_id: 550e8400-e29b-41d4-a716-446655440000
+                      requested: 10
+                      available: 5
+
+    UnprocessableEntity:
+      description: Promo code validation error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            invalid_promo:
+              value:
+                error_code: PROMO_CODE_INVALID
+                message: Promo code is invalid, expired, or exhausted
+            min_amount:
+              value:
+                error_code: PROMO_CODE_MIN_AMOUNT
+                message: Order amount below minimum for promo code
+                details:
+                  min_amount: 100.00
+                  current_amount: 50.00
+
+    TooManyRequests:
+      description: Rate limit exceeded
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error_code: ORDER_LIMIT_EXCEEDED
+            message: Order operation rate limit exceeded
+            details:
+              retry_after_seconds: 300
+
+paths:
+  # Product Endpoints
+  /products:
+    get:
+      tags:
+        - Products
+      summary: List products with pagination and filtering
+      description: Get a paginated list of products with optional filtering by status and category
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          description: Page number (0-indexed)
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: size
+          in: query
+          description: Page size
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: status
+          in: query
+          description: Filter by product status
+          schema:
+            $ref: '#/components/schemas/ProductStatus'
+        - name: category
+          in: query
+          description: Filter by category (exact match)
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    post:
+      tags:
+        - Products
+      summary: Create a new product
+      description: |
+        Create a new product. 
+        - SELLER: Can create products (will be assigned as seller_id)
+        - ADMIN: Can create products for any seller
+        - USER: Forbidden
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProductCreate'
+      responses:
+        '201':
+          description: Product created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /products/{id}:
+    get:
+      tags:
+        - Products
+      summary: Get product by ID
+      description: Retrieve a single product by its ID
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Product ID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      tags:
+        - Products
+      summary: Update product
+      description: |
+        Update an existing product.
+        - SELLER: Can update only own products
+        - ADMIN: Can update any product
+        - USER: Forbidden
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Product ID
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProductUpdate'
+      responses:
+        '200':
+          description: Product updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags:
+        - Products
+      summary: Soft delete product (archive)
+      description: |
+        Soft delete a product by setting status to ARCHIVED.
+        - SELLER: Can delete only own products
+        - ADMIN: Can delete any product
+        - USER: Forbidden
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Product ID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Product archived successfully
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # Order Endpoints
+  /orders:
+    post:
+      tags:
+        - Orders
+      summary: Create a new order
+      description: |
+        Create a new order with items and optional promo code.
+        - USER: Can create orders
+        - ADMIN: Can create orders
+        - SELLER: Forbidden
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrderCreate'
+      responses:
+        '201':
+          description: Order created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /orders/{id}:
+    get:
+      tags:
+        - Orders
+      summary: Get order by ID
+      description: |
+        Retrieve a single order by its ID.
+        - USER: Can view only own orders
+        - ADMIN: Can view any order
+        - SELLER: Forbidden
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Order ID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      tags:
+        - Orders
+      summary: Update order
+      description: |
+        Update order items. Only allowed in CREATED status.
+        - USER: Can update only own orders
+        - ADMIN: Can update any order
+        - SELLER: Forbidden
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Order ID
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrderUpdate'
+      responses:
+        '200':
+          description: Order updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /orders/{id}/cancel:
+    post:
+      tags:
+        - Orders
+      summary: Cancel order
+      description: |
+        Cancel an order. Only allowed in CREATED or PAYMENT_PENDING status.
+        - USER: Can cancel only own orders
+        - ADMIN: Can cancel any order
+        - SELLER: Forbidden
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Order ID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Order canceled successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  # Auth Endpoints
+  /auth/register:
+    post:
+      tags:
+        - Auth
+      summary: Register a new user
+      description: Create a new user account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: User registered successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /auth/login:
+    post:
+      tags:
+        - Auth
+      summary: Login
+      description: Authenticate and receive access and refresh tokens
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/refresh:
+    post:
+      tags:
+        - Auth
+      summary: Refresh access token
+      description: Get a new access token using refresh token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+      responses:
+        '200':
+          description: Token refreshed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: Invalid refresh token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error_code: REFRESH_TOKEN_INVALID
+                message: Invalid or expired refresh token
+
+  # Promo Code Endpoints
+  /promo-codes:
+    post:
+      tags:
+        - Promo Codes
+      summary: Create promo code
+      description: |
+        Create a new promotional code.
+        - SELLER: Can create promo codes
+        - ADMIN: Can create promo codes
+        - USER: Forbidden
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PromoCodeCreate'
+      responses:
+        '201':
+          description: Promo code created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PromoCodeResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'

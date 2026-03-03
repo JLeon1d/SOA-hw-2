@@ -1,0 +1,52 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: marketplace-postgres
+    environment:
+      POSTGRES_USER: marketplace
+      POSTGRES_PASSWORD: marketplace_password
+      POSTGRES_DB: marketplace
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./migrations/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U marketplace"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - marketplace-network
+
+  marketplace-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: marketplace-api
+    environment:
+      DATABASE_URL: postgres://marketplace:marketplace_password@postgres:5432/marketplace?sslmode=disable
+      JWT_SECRET: your-secret-key-change-in-production
+      JWT_ACCESS_EXPIRY: 30m
+      JWT_REFRESH_EXPIRY: 168h
+      RATE_LIMIT_MINUTES: 5
+      LOG_LEVEL: info
+      PORT: 8080
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - marketplace-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  marketplace-network:
+    driver: bridge
