@@ -23,6 +23,7 @@ func (r *repositoryImpl) Create(tx *sqlx.Tx, order *domain.Order) error {
 		INSERT INTO orders (id, user_id, status, promo_code_id, total_amount, discount_amount, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 	`
+
 	var err error
 	if tx != nil {
 		_, err = tx.Exec(query,
@@ -51,12 +52,15 @@ func (r *repositoryImpl) Create(tx *sqlx.Tx, order *domain.Order) error {
 	if err != nil {
 		return fmt.Errorf("failed to create order: %w", err)
 	}
+
 	return nil
 }
 
 func (r *repositoryImpl) GetByID(id uuid.UUID) (*domain.Order, error) {
 	var order domain.Order
+
 	query := `SELECT * FROM orders WHERE id = $1`
+
 	err := r.db.Get(&order, query, id)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -64,6 +68,7 @@ func (r *repositoryImpl) GetByID(id uuid.UUID) (*domain.Order, error) {
 		}
 		return nil, fmt.Errorf("failed to get order: %w", err)
 	}
+
 	return &order, nil
 }
 
@@ -74,6 +79,7 @@ func (r *repositoryImpl) Update(tx *sqlx.Tx, order *domain.Order) error {
 		    discount_amount = $5, updated_at = $6
 		WHERE id = $1
 	`
+
 	var result sql.Result
 	var err error
 

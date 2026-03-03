@@ -24,6 +24,7 @@ func (r *repositoryImpl) Create(product *domain.Product) error {
 		INSERT INTO products (id, name, description, price, stock, category, status, seller_id, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 	`
+
 	_, err := r.db.Exec(query,
 		product.ID,
 		product.Name,
@@ -39,12 +40,15 @@ func (r *repositoryImpl) Create(product *domain.Product) error {
 	if err != nil {
 		return fmt.Errorf("failed to create product: %w", err)
 	}
+
 	return nil
 }
 
 func (r *repositoryImpl) GetByID(id uuid.UUID) (*domain.Product, error) {
 	var product domain.Product
+
 	query := `SELECT * FROM products WHERE id = $1`
+
 	err := r.db.Get(&product, query, id)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -52,6 +56,7 @@ func (r *repositoryImpl) GetByID(id uuid.UUID) (*domain.Product, error) {
 		}
 		return nil, fmt.Errorf("failed to get product: %w", err)
 	}
+
 	return &product, nil
 }
 
@@ -62,6 +67,7 @@ func (r *repositoryImpl) Update(product *domain.Product) error {
 		    category = $6, status = $7, updated_at = $8
 		WHERE id = $1
 	`
+
 	result, err := r.db.Exec(query,
 		product.ID,
 		product.Name,
@@ -89,6 +95,7 @@ func (r *repositoryImpl) Update(product *domain.Product) error {
 
 func (r *repositoryImpl) Delete(id uuid.UUID) error {
 	query := `UPDATE products SET status = $1, updated_at = NOW() WHERE id = $2`
+
 	result, err := r.db.Exec(query, domain.ProductArchived, id)
 	if err != nil {
 		return fmt.Errorf("failed to archive product: %w", err)
@@ -136,13 +143,15 @@ func (r *repositoryImpl) List(filter Filter) (*ListResult, error) {
 
 	offset := filter.Page * filter.Size
 	args = append(args, filter.Size, offset)
+
+	var products []domain.Product
+
 	query := fmt.Sprintf(`
 		SELECT * FROM products %s
 		ORDER BY created_at DESC
 		LIMIT $%d OFFSET $%d
 	`, whereClause, argIndex, argIndex+1)
 
-	var products []domain.Product
 	err = r.db.Select(&products, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list products: %w", err)
@@ -161,6 +170,7 @@ func (r *repositoryImpl) UpdateStock(tx *sqlx.Tx, productID uuid.UUID, delta int
 		WHERE id = $2
 		RETURNING stock
 	`
+
 	var newStock int
 	var err error
 	if tx != nil {

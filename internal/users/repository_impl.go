@@ -23,6 +23,7 @@ func (r *repositoryImpl) Create(user *domain.User) error {
 		INSERT INTO users (id, email, password_hash, role, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6)
 	`
+
 	_, err := r.db.Exec(query,
 		user.ID,
 		user.Email,
@@ -34,12 +35,15 @@ func (r *repositoryImpl) Create(user *domain.User) error {
 	if err != nil {
 		return fmt.Errorf("failed to create user: %w", err)
 	}
+
 	return nil
 }
 
 func (r *repositoryImpl) GetByID(id uuid.UUID) (*domain.User, error) {
 	var user domain.User
+
 	query := `SELECT * FROM users WHERE id = $1`
+
 	err := r.db.Get(&user, query, id)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -47,12 +51,15 @@ func (r *repositoryImpl) GetByID(id uuid.UUID) (*domain.User, error) {
 		}
 		return nil, fmt.Errorf("failed to get user: %w", err)
 	}
+
 	return &user, nil
 }
 
 func (r *repositoryImpl) GetByEmail(email string) (*domain.User, error) {
 	var user domain.User
+
 	query := `SELECT * FROM users WHERE email = $1`
+
 	err := r.db.Get(&user, query, email)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -60,5 +67,6 @@ func (r *repositoryImpl) GetByEmail(email string) (*domain.User, error) {
 		}
 		return nil, fmt.Errorf("failed to get user: %w", err)
 	}
+
 	return &user, nil
 }

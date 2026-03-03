@@ -14,6 +14,225 @@ A complete RESTful API backend for a marketplace platform with product managemen
 - **Database Migrations**: Automated schema setup
 - **Docker Support**: Complete containerization with Docker Compose
 
+## Architecture Overview
+
+```mermaid
+graph TB
+    Client[Client Application]
+    API[API Server<br/>Chi Router]
+    Auth[Auth Middleware<br/>JWT Validation]
+    Log[Logging Middleware<br/>Request ID]
+    
+    subgraph "Handlers Layer"
+        PH[Products Handler]
+        OH[Orders Handler]
+        PCH[Promo Codes Handler]
+        UH[Users Handler]
+    end
+    
+    subgraph "Service Layer"
+        PS[Products Service]
+        OS[Orders Service]
+        PCS[Promo Codes Service]
+        US[Users Service]
+    end
+    
+    subgraph "Repository Layer"
+        PR[Products Repository]
+        OR[Orders Repository]
+        PCR[Promo Codes Repository]
+        UR[Users Repository]
+        OPR[Operations Repository]
+    end
+    
+    DB[(PostgreSQL<br/>Database)]
+    
+    Client -->|HTTP Request| API
+    API --> Auth
+    Auth --> Log
+    Log --> PH & OH & PCH & UH
+    
+    PH --> PS
+    OH --> OS
+    PCH --> PCS
+    UH --> US
+    
+    PS --> PR
+    OS --> OR & PR & PCR & OPR
+    PCS --> PCR
+    US --> UR
+    
+    PR --> DB
+    OR --> DB
+    PCR --> DB
+    UR --> DB
+    OPR --> DB
+```
+
+## Database Schema
+
+```mermaid
+erDiagram
+    users ||--o{ orders : creates
+    users ||--o{ products : sells
+    users ||--o{ user_operations : performs
+    
+    products ||--o{ order_items : contains
+    orders ||--|{ order_items : has
+    orders }o--|| promo_codes : applies
+    
+    users {
+        uuid id PK
+        string email UK
+        string password_hash
+        enum role
+        timestamp created_at
+        timestamp updated_at
+    }
+    
+    products {
+        uuid id PK
+        string name
+        string description
+        decimal price
+        int stock
+        string category
+        enum status
+        uuid seller_id FK
+        timestamp created_at
+        timestamp updated_at
+    }
+    
+    orders {
+        uuid id PK
+        uuid user_id FK
+        enum status
+        uuid promo_code_id FK
+        decimal total_amount
+        decimal discount_amount
+        timestamp created_at
+        timestamp updated_at
+    }
+    
+    order_items {
+        uuid id PK
+        uuid order_id FK
+        uuid product_id FK
+        int quantity
+        decimal price_at_order
+    }
+    
+    promo_codes {
+        uuid id PK
+        string code UK
+        enum discount_type
+        decimal discount_value
+        decimal min_order_amount
+        int max_uses
+        int current_uses
+        timestamp valid_from
+        timestamp valid_until
+        boolean active
+    }
+    
+    user_operations {
+        uuid id PK
+        uuid user_id FK
+        enum operation_type
+        timestamp created_at
+    }
+```
+
+## Order State Machine
+
+```mermaid
+stateDiagram-v2
+    [*] --> CREATED: Create Order
+    
+    CREATED --> PAYMENT_PENDING: Initiate Payment
+    CREATED --> CANCELED: Cancel Order
+    
+    PAYMENT_PENDING --> PAID: Payment Confirmed
+    PAYMENT_PENDING --> CANCELED: Cancel Order
+    
+    PAID --> SHIPPED: Ship Order
+    
+    SHIPPED --> COMPLETED: Delivery Confirmed
+    
+    COMPLETED --> [*]
+    CANCELED --> [*]
+    
+    note right of CREATED
+        Stock reserved
+        Promo code applied
+    end note
+    
+    note right of CANCELED
+        Stock returned
+        Promo code uses decremented
+    end note
+```
+
+## Order Creation Flow
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Handler
+    participant Service
+    participant ProductRepo
+    participant PromoRepo
+    participant OrderRepo
+    participant OpRepo
+    participant DB
+    
+    Client->>Handler: POST /orders
+    Handler->>Service: Create(userID, items, promoCode)
+    
+    Service->>OpRepo: Check rate limit
+    OpRepo->>DB: Get last CREATE_ORDER
+    DB-->>OpRepo: Last operation time
+    OpRepo-->>Service: Rate limit OK
+    
+    Service->>OrderRepo: Check active orders
+    OrderRepo->>DB: SELECT active orders
+    DB-->>OrderRepo: No active orders
+    OrderRepo-->>Service: No conflicts
+    
+    Service->>ProductRepo: Validate products
+    ProductRepo->>DB: SELECT products
+    DB-->>ProductRepo: Products data
+    ProductRepo-->>Service: All products ACTIVE
+    
+    Service->>ProductRepo: Check stock
+    ProductRepo-->>Service: Stock sufficient
+    
+    Service->>DB: BEGIN TRANSACTION
+    
+    Service->>ProductRepo: Reserve stock
+    ProductRepo->>DB: UPDATE products SET stock = stock - qty
+    
+    Service->>PromoRepo: Validate promo code
+    PromoRepo->>DB: SELECT promo_code
+    DB-->>PromoRepo: Promo code data
+    PromoRepo-->>Service: Valid promo code
+    
+    Service->>PromoRepo: Increment uses
+    PromoRepo->>DB: UPDATE promo_codes SET current_uses++
+    
+    Service->>OrderRepo: Create order
+    OrderRepo->>DB: INSERT INTO orders
+    OrderRepo->>DB: INSERT INTO order_items
+    
+    Service->>OpRepo: Record operation
+    OpRepo->>DB: INSERT INTO user_operations
+    
+    Service->>DB: COMMIT TRANSACTION
+    
+    Service-->>Handler: Order created
+    Handler-->>Client: 201 Created
+```
+
 ## Tech Stack
 
 - **Language**: Go 1.25+
@@ -23,6 +242,7 @@ A complete RESTful API backend for a marketplace platform with product managemen
 - **Authentication**: JWT (golang-jwt/jwt)
 - **Logging**: zerolog
 - **API Spec**: OpenAPI 3.0
+- **Code Generation**: oapi-codegen v2
 
 ## Project Structure
 
