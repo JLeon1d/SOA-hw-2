@@ -8,8 +8,6 @@ import (
 	"marketplace-backend/internal/domain"
 )
 
-// Force rebuild - promo validation fix
-
 type serviceImpl struct {
 	repo Repository
 }

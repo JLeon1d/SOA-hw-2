@@ -368,7 +368,7 @@ func TestPromoCodeFlow(t *testing.T) {
 			"discount_value":   10.0,
 			"min_order_amount": 50.0,
 			"max_uses":         100,
-			"valid_from":       time.Now().Format(time.RFC3339),
+			"valid_from":       time.Now().Add(-24 * time.Hour).Format(time.RFC3339), // Start 24 hours ago to avoid any timezone issues
 			"valid_until":      time.Now().Add(30 * 24 * time.Hour).Format(time.RFC3339),
 		}
 		resp := makeRequest(t, "POST", "/promo-codes", payload, adminAccessToken)
