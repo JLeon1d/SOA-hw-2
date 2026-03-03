@@ -452,9 +452,14 @@ func TestOrderFlow(t *testing.T) {
 		}
 	})
 
-	t.Run("Update Order Status", func(t *testing.T) {
+	t.Run("Update Order Items", func(t *testing.T) {
 		payload := map[string]interface{}{
-			"status": "PAYMENT_PENDING",
+			"items": []map[string]interface{}{
+				{
+					"product_id": productID,
+					"quantity":   3, // Changed from 2 to 3
+				},
+			},
 		}
 		resp := makeRequest(t, "PUT", "/orders/"+orderID, payload, userAccessToken)
 		defer resp.Body.Close()
@@ -463,17 +468,30 @@ func TestOrderFlow(t *testing.T) {
 			body, _ := io.ReadAll(resp.Body)
 			t.Fatalf("Expected status 200, got %d. Body: %s", resp.StatusCode, string(body))
 		}
+
+		var result map[string]interface{}
+		json.NewDecoder(resp.Body).Decode(&result)
+
+		// Verify the order is still in CREATED status (only items can be updated)
+		if result["status"] != "CREATED" {
+			t.Fatalf("Expected status to remain CREATED, got %v", result["status"])
+		}
 	})
 
-	t.Run("Invalid Status Transition (should fail)", func(t *testing.T) {
+	t.Run("Update Order with Invalid Items (should fail)", func(t *testing.T) {
 		payload := map[string]interface{}{
-			"status": "COMPLETED",
+			"items": []map[string]interface{}{
+				{
+					"product_id": "invalid-uuid",
+					"quantity":   1,
+				},
+			},
 		}
 		resp := makeRequest(t, "PUT", "/orders/"+orderID, payload, userAccessToken)
 		defer resp.Body.Close()
 
 		if resp.StatusCode == http.StatusOK {
-			t.Fatal("Expected invalid transition to fail")
+			t.Fatal("Expected invalid product ID to fail")
 		}
 	})
 

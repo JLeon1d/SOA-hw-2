@@ -6,6 +6,7 @@ import (
 
 	"marketplace-backend/internal/domain"
 	"marketplace-backend/internal/errors"
+	"marketplace-backend/internal/generated/api"
 	"marketplace-backend/internal/middleware"
 
 	"github.com/go-chi/chi/v5"
@@ -22,38 +23,6 @@ func NewHandler(service Service) *Handler {
 	}
 }
 
-type OrderItemHTTP struct {
-	ProductID uuid.UUID `json:"product_id"`
-	Quantity  int       `json:"quantity"`
-}
-
-type CreateOrderRequest struct {
-	Items     []OrderItemHTTP `json:"items"`
-	PromoCode *string         `json:"promo_code"`
-}
-
-type UpdateOrderRequest struct {
-	Status string `json:"status"`
-}
-
-type OrderItemResponse struct {
-	ID           uuid.UUID `json:"id"`
-	ProductID    uuid.UUID `json:"product_id"`
-	Quantity     int       `json:"quantity"`
-	PriceAtOrder float64   `json:"price_at_order"`
-}
-
-type OrderResponse struct {
-	ID             uuid.UUID           `json:"id"`
-	UserID         uuid.UUID           `json:"user_id"`
-	Status         string              `json:"status"`
-	Items          []OrderItemResponse `json:"items"`
-	TotalAmount    float64             `json:"total_amount"`
-	DiscountAmount float64             `json:"discount_amount"`
-	CreatedAt      string              `json:"created_at"`
-	UpdatedAt      string              `json:"updated_at"`
-}
-
 func (h *Handler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 
@@ -63,7 +32,7 @@ func (h *Handler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req CreateOrderRequest
+	var req api.OrderCreate
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		errors.NewValidationError("Invalid request body", nil).WriteJSON(w)
 		return
@@ -71,8 +40,13 @@ func (h *Handler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 
 	items := make([]OrderItemRequest, len(req.Items))
 	for i, item := range req.Items {
+		productID, err := uuid.Parse(item.ProductId)
+		if err != nil {
+			errors.NewValidationError("Invalid product ID", nil).WriteJSON(w)
+			return
+		}
 		items[i] = OrderItemRequest{
-			ProductID: item.ProductID,
+			ProductID: productID,
 			Quantity:  item.Quantity,
 		}
 	}
@@ -137,13 +111,11 @@ func (h *Handler) UpdateOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req UpdateOrderRequest
+	var req api.OrderUpdate
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		errors.NewValidationError("Invalid request body", nil).WriteJSON(w)
 		return
 	}
-
-	newStatus := domain.OrderStatus(req.Status)
 
 	existing, err := h.service.GetByID(id)
 	if err != nil {
@@ -156,15 +128,15 @@ func (h *Handler) UpdateOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !existing.Order.Status.CanTransitionTo(newStatus) {
-		errors.NewInvalidStateTransition(string(existing.Order.Status), string(newStatus)).WriteJSON(w)
-		return
-	}
-
-	items := make([]OrderItemRequest, len(existing.Items))
-	for i, item := range existing.Items {
+	items := make([]OrderItemRequest, len(req.Items))
+	for i, item := range req.Items {
+		productID, err := uuid.Parse(item.ProductId)
+		if err != nil {
+			errors.NewValidationError("Invalid product ID", nil).WriteJSON(w)
+			return
+		}
 		items[i] = OrderItemRequest{
-			ProductID: item.ProductID,
+			ProductID: productID,
 			Quantity:  item.Quantity,
 		}
 	}
@@ -227,25 +199,32 @@ func (h *Handler) CancelOrder(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
-func mapOrderToResponse(order *domain.OrderWithItems) OrderResponse {
-	items := make([]OrderItemResponse, len(order.Items))
+func mapOrderToResponse(order *domain.OrderWithItems) api.OrderResponse {
+	items := make([]api.OrderItemResponse, len(order.Items))
 	for i, item := range order.Items {
-		items[i] = OrderItemResponse{
-			ID:           item.ID,
-			ProductID:    item.ProductID,
+		items[i] = api.OrderItemResponse{
+			Id:           item.ID.String(),
+			ProductId:    item.ProductID.String(),
 			Quantity:     item.Quantity,
-			PriceAtOrder: item.PriceAtOrder,
+			PriceAtOrder: float32(item.PriceAtOrder),
 		}
 	}
 
-	return OrderResponse{
-		ID:             order.Order.ID,
-		UserID:         order.Order.UserID,
-		Status:         string(order.Order.Status),
+	resp := api.OrderResponse{
+		Id:             order.Order.ID.String(),
+		UserId:         order.Order.UserID.String(),
+		Status:         api.OrderStatus(order.Order.Status),
 		Items:          items,
-		TotalAmount:    order.Order.TotalAmount,
-		DiscountAmount: order.Order.DiscountAmount,
-		CreatedAt:      order.Order.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
-		UpdatedAt:      order.Order.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		TotalAmount:    float32(order.Order.TotalAmount),
+		DiscountAmount: float32(order.Order.DiscountAmount),
+		CreatedAt:      order.Order.CreatedAt,
+		UpdatedAt:      order.Order.UpdatedAt,
 	}
+
+	if order.Order.PromoCodeID != nil {
+		promoCodeIDStr := order.Order.PromoCodeID.String()
+		resp.PromoCodeId = &promoCodeIDStr
+	}
+
+	return resp
 }

@@ -89,7 +89,6 @@ components:
         - price
         - stock
         - category
-        - status
       properties:
         name:
           type: string
@@ -118,6 +117,7 @@ components:
           description: Product category
         status:
           $ref: '#/components/schemas/ProductStatus'
+          default: ACTIVE
 
     ProductUpdate:
       type: object
@@ -164,8 +164,7 @@ components:
       properties:
         id:
           type: string
-          format: uuid
-          description: Product ID
+          description: Product ID (UUID format)
         name:
           type: string
           description: Product name
@@ -187,9 +186,8 @@ components:
           $ref: '#/components/schemas/ProductStatus'
         seller_id:
           type: string
-          format: uuid
           nullable: true
-          description: Seller ID (for SELLER role)
+          description: Seller ID (UUID format, for SELLER role)
         created_at:
           type: string
           format: date-time
@@ -241,8 +239,7 @@ components:
       properties:
         product_id:
           type: string
-          format: uuid
-          description: Product ID
+          description: Product ID (UUID format)
         quantity:
           type: integer
           minimum: 1
@@ -259,12 +256,10 @@ components:
       properties:
         id:
           type: string
-          format: uuid
-          description: Order item ID
+          description: Order item ID (UUID format)
         product_id:
           type: string
-          format: uuid
-          description: Product ID
+          description: Product ID (UUID format)
         quantity:
           type: integer
           description: Quantity ordered
@@ -316,12 +311,10 @@ components:
       properties:
         id:
           type: string
-          format: uuid
-          description: Order ID
+          description: Order ID (UUID format)
         user_id:
           type: string
-          format: uuid
-          description: User ID who created the order
+          description: User ID who created the order (UUID format)
         status:
           $ref: '#/components/schemas/OrderStatus'
         items:
@@ -330,9 +323,8 @@ components:
             $ref: '#/components/schemas/OrderItemResponse'
         promo_code_id:
           type: string
-          format: uuid
           nullable: true
-          description: Applied promo code ID
+          description: Applied promo code ID (UUID format)
         total_amount:
           type: number
           format: decimal
@@ -432,6 +424,31 @@ components:
         - FIXED_AMOUNT
       description: Discount type
 
+    PromoCodeUpdate:
+      type: object
+      properties:
+        active:
+          type: boolean
+          description: Whether promo code is active
+        discount_value:
+          type: number
+          format: decimal
+          minimum: 0.01
+          description: Discount value
+        min_order_amount:
+          type: number
+          format: decimal
+          minimum: 0
+          description: Minimum order amount
+        max_uses:
+          type: integer
+          minimum: 1
+          description: Maximum number of uses
+        valid_until:
+          type: string
+          format: date-time
+          description: Promo code valid until
+
     PromoCodeCreate:
       type: object
       required:
@@ -492,8 +509,7 @@ components:
       properties:
         id:
           type: string
-          format: uuid
-          description: Promo code ID
+          description: Promo code ID (UUID format)
         code:
           type: string
           description: Promo code
@@ -737,7 +753,6 @@ paths:
           description: Product ID
           schema:
             type: string
-            format: uuid
       responses:
         '200':
           description: Successful response
@@ -768,7 +783,6 @@ paths:
           description: Product ID
           schema:
             type: string
-            format: uuid
       requestBody:
         required: true
         content:
@@ -809,7 +823,6 @@ paths:
           description: Product ID
           schema:
             type: string
-            format: uuid
       responses:
         '204':
           description: Product archived successfully
@@ -880,7 +893,6 @@ paths:
           description: Order ID
           schema:
             type: string
-            format: uuid
       responses:
         '200':
           description: Successful response
@@ -913,7 +925,6 @@ paths:
           description: Order ID
           schema:
             type: string
-            format: uuid
       requestBody:
         required: true
         content:
@@ -961,7 +972,6 @@ paths:
           description: Order ID
           schema:
             type: string
-            format: uuid
       responses:
         '200':
           description: Order canceled successfully
@@ -1084,3 +1094,104 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+
+  /promo-codes/{id}:
+    get:
+      tags:
+        - Promo Codes
+      summary: Get promo code by ID
+      description: |
+        Retrieve a promo code by ID.
+        - ADMIN: Can view any promo code
+        - SELLER: Can view any promo code
+        - USER: Forbidden
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Promo code ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PromoCodeResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      tags:
+        - Promo Codes
+      summary: Update promo code
+      description: |
+        Update an existing promo code.
+        - ADMIN: Can update any promo code
+        - SELLER: Can update any promo code
+        - USER: Forbidden
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Promo code ID
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PromoCodeUpdate'
+      responses:
+        '200':
+          description: Promo code updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PromoCodeResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags:
+        - Promo Codes
+      summary: Delete promo code
+      description: |
+        Delete a promo code.
+        - ADMIN: Can delete any promo code
+        - SELLER: Can delete any promo code
+        - USER: Forbidden
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Promo code ID
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Promo code deleted successfully
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'

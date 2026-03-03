@@ -3,10 +3,10 @@ package promos
 import (
 	"encoding/json"
 	"net/http"
-	"time"
 
 	"marketplace-backend/internal/domain"
 	"marketplace-backend/internal/errors"
+	"marketplace-backend/internal/generated/api"
 	"marketplace-backend/internal/middleware"
 
 	"github.com/go-chi/chi/v5"
@@ -23,73 +23,35 @@ func NewHandler(service Service) *Handler {
 	}
 }
 
-type CreatePromoCodeRequest struct {
-	Code           string  `json:"code"`
-	DiscountType   string  `json:"discount_type"`
-	DiscountValue  float64 `json:"discount_value"`
-	MinOrderAmount float64 `json:"min_order_amount"`
-	MaxUses        int     `json:"max_uses"`
-	ValidFrom      string  `json:"valid_from"`
-	ValidUntil     string  `json:"valid_until"`
-}
-
-type UpdatePromoCodeRequest struct {
-	Active         *bool    `json:"active"`
-	DiscountValue  *float64 `json:"discount_value"`
-	MinOrderAmount *float64 `json:"min_order_amount"`
-	MaxUses        *int     `json:"max_uses"`
-	ValidUntil     *string  `json:"valid_until"`
-}
-
-type PromoCodeResponse struct {
-	ID             uuid.UUID `json:"id"`
-	Code           string    `json:"code"`
-	DiscountType   string    `json:"discount_type"`
-	DiscountValue  float64   `json:"discount_value"`
-	MinOrderAmount float64   `json:"min_order_amount"`
-	MaxUses        int       `json:"max_uses"`
-	CurrentUses    int       `json:"current_uses"`
-	ValidFrom      string    `json:"valid_from"`
-	ValidUntil     string    `json:"valid_until"`
-	Active         bool      `json:"active"`
-}
-
 func (h *Handler) CreatePromoCode(w http.ResponseWriter, r *http.Request) {
 	role := middleware.GetUserRole(r.Context())
 
-	if role != string(domain.RoleAdmin) {
+	if role != string(domain.RoleAdmin) && role != string(domain.RoleSeller) {
 		errors.NewAccessDenied().WriteJSON(w)
 		return
 	}
 
-	var req CreatePromoCodeRequest
+	var req api.PromoCodeCreate
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		errors.NewValidationError("Invalid request body", nil).WriteJSON(w)
 		return
 	}
 
-	validFrom, err := time.Parse(time.RFC3339, req.ValidFrom)
-	if err != nil {
-		errors.NewValidationError("Invalid valid_from format", nil).WriteJSON(w)
-		return
-	}
-
-	validUntil, err := time.Parse(time.RFC3339, req.ValidUntil)
-	if err != nil {
-		errors.NewValidationError("Invalid valid_until format", nil).WriteJSON(w)
-		return
+	active := true
+	if req.Active != nil {
+		active = *req.Active
 	}
 
 	promo := &domain.PromoCode{
 		Code:           req.Code,
 		DiscountType:   domain.DiscountType(req.DiscountType),
-		DiscountValue:  req.DiscountValue,
-		MinOrderAmount: req.MinOrderAmount,
+		DiscountValue:  float64(req.DiscountValue),
+		MinOrderAmount: float64(req.MinOrderAmount),
 		MaxUses:        req.MaxUses,
 		CurrentUses:    0,
-		ValidFrom:      validFrom,
-		ValidUntil:     validUntil,
-		Active:         true,
+		ValidFrom:      req.ValidFrom,
+		ValidUntil:     req.ValidUntil,
+		Active:         active,
 	}
 
 	if err := h.service.Create(promo); err != nil {
@@ -106,7 +68,7 @@ func (h *Handler) CreatePromoCode(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetPromoCode(w http.ResponseWriter, r *http.Request) {
 	role := middleware.GetUserRole(r.Context())
 
-	if role != string(domain.RoleAdmin) {
+	if role != string(domain.RoleAdmin) && role != string(domain.RoleSeller) {
 		errors.NewAccessDenied().WriteJSON(w)
 		return
 	}
@@ -132,7 +94,7 @@ func (h *Handler) GetPromoCode(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) UpdatePromoCode(w http.ResponseWriter, r *http.Request) {
 	role := middleware.GetUserRole(r.Context())
 
-	if role != string(domain.RoleAdmin) {
+	if role != string(domain.RoleAdmin) && role != string(domain.RoleSeller) {
 		errors.NewAccessDenied().WriteJSON(w)
 		return
 	}
@@ -150,7 +112,7 @@ func (h *Handler) UpdatePromoCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req UpdatePromoCodeRequest
+	var req api.PromoCodeUpdate
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		errors.NewValidationError("Invalid request body", nil).WriteJSON(w)
 		return
@@ -160,21 +122,16 @@ func (h *Handler) UpdatePromoCode(w http.ResponseWriter, r *http.Request) {
 		existing.Active = *req.Active
 	}
 	if req.DiscountValue != nil {
-		existing.DiscountValue = *req.DiscountValue
+		existing.DiscountValue = float64(*req.DiscountValue)
 	}
 	if req.MinOrderAmount != nil {
-		existing.MinOrderAmount = *req.MinOrderAmount
+		existing.MinOrderAmount = float64(*req.MinOrderAmount)
 	}
 	if req.MaxUses != nil {
 		existing.MaxUses = *req.MaxUses
 	}
 	if req.ValidUntil != nil {
-		validUntil, err := time.Parse(time.RFC3339, *req.ValidUntil)
-		if err != nil {
-			errors.NewValidationError("Invalid valid_until format", nil).WriteJSON(w)
-			return
-		}
-		existing.ValidUntil = validUntil
+		existing.ValidUntil = *req.ValidUntil
 	}
 
 	if err := h.service.Update(existing); err != nil {
@@ -190,7 +147,7 @@ func (h *Handler) UpdatePromoCode(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) DeletePromoCode(w http.ResponseWriter, r *http.Request) {
 	role := middleware.GetUserRole(r.Context())
 
-	if role != string(domain.RoleAdmin) {
+	if role != string(domain.RoleAdmin) && role != string(domain.RoleSeller) {
 		errors.NewAccessDenied().WriteJSON(w)
 		return
 	}
@@ -210,17 +167,17 @@ func (h *Handler) DeletePromoCode(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func mapPromoToResponse(p *domain.PromoCode) PromoCodeResponse {
-	return PromoCodeResponse{
-		ID:             p.ID,
+func mapPromoToResponse(p *domain.PromoCode) api.PromoCodeResponse {
+	return api.PromoCodeResponse{
+		Id:             p.ID.String(),
 		Code:           p.Code,
-		DiscountType:   string(p.DiscountType),
-		DiscountValue:  p.DiscountValue,
-		MinOrderAmount: p.MinOrderAmount,
+		DiscountType:   api.DiscountType(p.DiscountType),
+		DiscountValue:  float32(p.DiscountValue),
+		MinOrderAmount: float32(p.MinOrderAmount),
 		MaxUses:        p.MaxUses,
 		CurrentUses:    p.CurrentUses,
-		ValidFrom:      p.ValidFrom.Format("2006-01-02T15:04:05Z07:00"),
-		ValidUntil:     p.ValidUntil.Format("2006-01-02T15:04:05Z07:00"),
+		ValidFrom:      p.ValidFrom,
+		ValidUntil:     p.ValidUntil,
 		Active:         p.Active,
 	}
 }
