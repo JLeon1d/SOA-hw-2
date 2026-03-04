@@ -71,32 +71,32 @@ graph TB
 
 ```mermaid
 erDiagram
-    users ||--o{ orders : creates
-    users ||--o{ products : sells
-    users ||--o{ user_operations : performs
+    users ||--o{ orders : "creates"
+    users ||--o{ products : "sells"
+    users ||--o{ user_operations : "performs"
     
-    products ||--o{ order_items : contains
-    orders ||--|{ order_items : has
-    orders }o--|| promo_codes : applies
+    products ||--o{ order_items : "in"
+    orders ||--|{ order_items : "contains"
+    orders }o--o| promo_codes : "applies"
     
     users {
         uuid id PK
-        string email UK
-        string password_hash
-        enum role
+        varchar_255 email UK
+        varchar_255 password_hash
+        user_role role
         timestamp created_at
         timestamp updated_at
     }
     
     products {
         uuid id PK
-        string name
-        string description
-        decimal price
-        int stock
-        string category
-        enum status
-        uuid seller_id FK
+        varchar_255 name
+        varchar_4000 description
+        decimal_12_2 price
+        integer stock
+        varchar_100 category
+        product_status status
+        uuid seller_id FK "nullable"
         timestamp created_at
         timestamp updated_at
     }
@@ -104,10 +104,10 @@ erDiagram
     orders {
         uuid id PK
         uuid user_id FK
-        enum status
-        uuid promo_code_id FK
-        decimal total_amount
-        decimal discount_amount
+        order_status status
+        uuid promo_code_id FK "nullable"
+        decimal_12_2 total_amount
+        decimal_12_2 discount_amount
         timestamp created_at
         timestamp updated_at
     }
@@ -116,18 +116,18 @@ erDiagram
         uuid id PK
         uuid order_id FK
         uuid product_id FK
-        int quantity
-        decimal price_at_order
+        integer quantity
+        decimal_12_2 price_at_order
     }
     
     promo_codes {
         uuid id PK
-        string code UK
-        enum discount_type
-        decimal discount_value
-        decimal min_order_amount
-        int max_uses
-        int current_uses
+        varchar_20 code UK
+        discount_type discount_type
+        decimal_12_2 discount_value
+        decimal_12_2 min_order_amount
+        integer max_uses
+        integer current_uses
         timestamp valid_from
         timestamp valid_until
         boolean active
@@ -136,7 +136,7 @@ erDiagram
     user_operations {
         uuid id PK
         uuid user_id FK
-        enum operation_type
+        operation_type operation_type
         timestamp created_at
     }
 ```
