@@ -47,15 +47,17 @@ docker-down: ## Stop all services
 docker-build: ## Build docker image
 	@docker build -t marketplace-backend:latest .
 
-migrate-up: ## Run database migrations up
-	@echo "Running migrations..."
-	@docker-compose exec -T postgres psql -U marketplace -d marketplace < migrations/init.sql || true
-	@echo "Migrations complete!"
+migrate-up: ## Run database migrations up (migrations run automatically on app startup)
+	@echo "Migrations are run automatically when the application starts."
+	@echo "To manually run migrations, restart the marketplace-api container:"
+	@echo "  docker-compose restart marketplace-api"
 
 migrate-down: ## Run database migrations down
 	@echo "Rolling back migrations..."
 	@docker-compose exec -T postgres psql -U marketplace -d marketplace -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
 	@echo "Rollback complete!"
+	@echo "Restart the application to re-apply migrations:"
+	@echo "  docker-compose restart marketplace-api"
 
 deps: ## Install Go dependencies
 	@echo "Installing dependencies..."

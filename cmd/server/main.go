@@ -16,6 +16,9 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
+	"github.com/golang-migrate/migrate/v4"
+	_ "github.com/golang-migrate/migrate/v4/database/postgres"
+	_ "github.com/golang-migrate/migrate/v4/source/file"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
 	"github.com/rs/zerolog"
@@ -40,71 +43,40 @@ func connectWithRetry(dsn string, maxRetries int, retryDelay time.Duration) (*sq
 	return nil, fmt.Errorf("failed to connect after %d attempts: %w", maxRetries, err)
 }
 
+func runMigrations(logger zerolog.Logger) error {
+	migrateURL := os.Getenv("DATABASE_URL")
+	logger.Info().Str("url", maskPassword(migrateURL)).Msg("Running database migrations...")
+
+	m, err := migrate.New(
+		"file://migrations",
+		migrateURL,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create migrate instance: %w", err)
+	}
+	defer m.Close()
+
+	// Run migrations
+	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
+		return fmt.Errorf("failed to run migrations: %w", err)
+	}
+
+	if err == migrate.ErrNoChange {
+		logger.Info().Msg("No new migrations to apply")
+	} else {
+		logger.Info().Msg("Migrations applied successfully")
+	}
+
+	return nil
+}
+
 func main() {
 	logger := zerolog.New(os.Stdout).With().Timestamp().Logger()
 
-	// Support both DATABASE_URL and individual DB_ variables
-	dsn := os.Getenv("DATABASE_URL")
+	// Parse DATABASE_URL to lib/pq format
+	databaseURL := os.Getenv("DATABASE_URL")
+	dsn := parseDatabaseURL(databaseURL)
 
-	if dsn == "" {
-		// Use individual variables
-		dbHost := getEnv("DB_HOST", "localhost")
-		dbPort := getEnv("DB_PORT", "5432")
-		dbUser := getEnv("DB_USER", "marketplace")
-		dbPassword := getEnv("DB_PASSWORD", "marketplace_password")
-		dbName := getEnv("DB_NAME", "marketplace")
-		dsn = fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
-			dbHost, dbPort, dbUser, dbPassword, dbName)
-	} else {
-		// DATABASE_URL is set - parse it to key=value format for lib/pq
-		// lib/pq doesn't handle postgres:// URLs well, convert to connection string format
-		// Expected format: postgres://user:pass@host:port/dbname?sslmode=disable
-		// Convert to: host=host port=port user=user password=pass dbname=dbname sslmode=disable
-
-		if len(dsn) > 11 && dsn[:11] == "postgres://" {
-			// Remove postgres:// prefix
-			rest := dsn[11:]
-
-			// Split by @
-			parts := splitOnce(rest, "@")
-			if len(parts) == 2 {
-				userPass := parts[0]
-				hostPortDb := parts[1]
-
-				// Split user:pass
-				userPassParts := splitOnce(userPass, ":")
-				user := userPassParts[0]
-				password := ""
-				if len(userPassParts) == 2 {
-					password = userPassParts[1]
-				}
-
-				// Split host:port/db?params
-				hostPortDbParts := splitOnce(hostPortDb, "/")
-				hostPort := hostPortDbParts[0]
-				dbParams := ""
-				if len(hostPortDbParts) == 2 {
-					dbParams = hostPortDbParts[1]
-				}
-
-				// Split host:port
-				hostPortParts := splitOnce(hostPort, ":")
-				host := hostPortParts[0]
-				port := "5432"
-				if len(hostPortParts) == 2 {
-					port = hostPortParts[1]
-				}
-
-				// Split db?params
-				dbParamsParts := splitOnce(dbParams, "?")
-				dbname := dbParamsParts[0]
-
-				// Reconstruct as key=value format
-				dsn = fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
-					host, port, user, password, dbname)
-			}
-		}
-	}
 	logger.Info().Str("dsn", maskPassword(dsn)).Msg("Connecting to database")
 
 	jwtSecret := getEnv("JWT_SECRET", "your-secret-key-change-in-production")
@@ -122,6 +94,12 @@ func main() {
 	db.SetConnMaxLifetime(5 * time.Minute)
 
 	logger.Info().Msg("Database connection established")
+
+	// Run migrations
+	if err := runMigrations(logger); err != nil {
+		logger.Error().Err(err).Msg("Failed to run migrations")
+		log.Fatalf("Failed to run migrations: %v", err)
+	}
 
 	usersRepo := users.NewRepository(db)
 	usersService := users.NewService(usersRepo, jwtSecret, 30*time.Minute, 7*24*time.Hour)
@@ -187,6 +165,46 @@ func main() {
 	if err := http.ListenAndServe(addr, r); err != nil {
 		log.Fatalf("Server failed: %v", err)
 	}
+}
+
+func parseDatabaseURL(databaseURL string) string {
+	// Convert postgres://user:pass@host:port/dbname?params to lib/pq format
+	if len(databaseURL) > 11 && databaseURL[:11] == "postgres://" {
+		rest := databaseURL[11:]
+		parts := splitOnce(rest, "@")
+		if len(parts) == 2 {
+			userPass := parts[0]
+			hostPortDb := parts[1]
+
+			userPassParts := splitOnce(userPass, ":")
+			user := userPassParts[0]
+			password := ""
+			if len(userPassParts) == 2 {
+				password = userPassParts[1]
+			}
+
+			hostPortDbParts := splitOnce(hostPortDb, "/")
+			hostPort := hostPortDbParts[0]
+			dbParams := ""
+			if len(hostPortDbParts) == 2 {
+				dbParams = hostPortDbParts[1]
+			}
+
+			hostPortParts := splitOnce(hostPort, ":")
+			host := hostPortParts[0]
+			port := "5432"
+			if len(hostPortParts) == 2 {
+				port = hostPortParts[1]
+			}
+
+			dbParamsParts := splitOnce(dbParams, "?")
+			dbname := dbParamsParts[0]
+
+			return fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
+				host, port, user, password, dbname)
+		}
+	}
+	return databaseURL
 }
 
 func getEnv(key, defaultValue string) string {

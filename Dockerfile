@@ -27,6 +27,7 @@ RUN apk --no-cache add ca-certificates postgresql-client netcat-openbsd bind-too
 WORKDIR /root/
 
 COPY --from=builder /app/marketplace-server .
+COPY --from=builder /app/migrations ./migrations
 
 # Copy test script
 COPY test_connection.sh .
